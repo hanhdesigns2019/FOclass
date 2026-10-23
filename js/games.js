@@ -156,16 +156,18 @@
   function bigPlay(text, slot) { return `<button class="bigplay" type="button" data-say="${esc(text)}" data-slot="${slot || 'A'}" aria-label="Nghe lại"><span>▶</span></button>`; }
 
   /* ---------- Part 1 / Part 2 (dạng đề thật) ---------- */
+  // làm sáng ô A/B/C/D đang được đọc (giọng đọc không đọc chữ cái)
+  function markPlaying(i) { U.$$('.opts .opt').forEach((b, k) => b.classList.toggle('playing', k === i)); }
   function p1Q(id, img, statements, ans, vis, tag) {
     return { kind: 'p1', id, base: 15, tag: tag || 'Part 1', cat: 'p1', statements, ans, vis,
-      audio: () => TTS.play(statements.map((s, i) => ({ t: LETTERS[i] + '. ' + s, v: i % 2 ? 'B' : 'A', gap: 650 }))),
+      audio: () => TTS.play(statements.map((s, i) => ({ t: s, v: i % 2 ? 'B' : 'A', gap: 900 })), i => markPlaying(i)),
       html: `<div class="p1"><img class="photo" src="${esc(img)}" alt="Tranh Part 1"><button class="play-row" type="button" data-act="replay">▶ Nghe 4 câu mô tả</button></div>`,
       options: statements.map((s, i) => ({ html: `<span class="opt-text">${esc(s)}</span>`, ok: i === ans, hidden: true })),
       reveal: statements.map((s, i) => `<p class="rv-line ${i === ans ? 'good' : ''}"><b>${LETTERS[i]}.</b> ${esc(s)}<br><span class="vi">${esc(vis[i] || '')}</span></p>`).join('') };
   }
   function p2Q(id, q, qVi, responses, ans, vis, tag, card) {
     return { kind: 'p2', id, base: 15, tag: tag || 'Part 2', cat: 'p2', ans,
-      audio: () => TTS.play([{ t: q, v: 'A', gap: 800 }].concat(responses.map((r, i) => ({ t: LETTERS[i] + '. ' + r, v: 'B', gap: 600 })))),
+      audio: () => TTS.play([{ t: q, v: 'A', gap: 900 }].concat(responses.map(r => ({ t: r, v: 'B', gap: 800 }))), i => markPlaying(i - 1)),
       html: `<div class="p2"><div class="p2-q"><span class="q-mark" aria-hidden="true">?</span><p class="hidden-q" data-q>${esc(q)}</p></div><button class="play-row" type="button" data-act="replay">▶ Nghe câu hỏi và 3 câu trả lời</button></div>`,
       options: responses.map((r, i) => ({ html: `<span class="opt-text">${esc(r)}</span>`, ok: i === ans, hidden: true })),
       reveal: `<p class="rv-line"><b>Hỏi:</b> ${esc(q)}<br><span class="vi">${esc(qVi)}</span></p>` + responses.map((r, i) => `<p class="rv-line ${i === ans ? 'good' : ''}"><b>${LETTERS[i]}.</b> ${esc(r)}<br><span class="vi">${esc(vis[i] || '')}</span></p>`).join('') };
@@ -279,7 +281,7 @@
     let body = '';
     if (q.kind === 'mcq' || q.kind === 'p1' || q.kind === 'p2') {
       body = `<div class="opts ${q.kind !== 'mcq' ? 'exam' : ''}" role="group" aria-label="Các lựa chọn">${q.options.map((o, i) => `<button class="opt ${o.hidden && !showText ? 'conceal' : ''}" data-opt="${i}" type="button"><span class="bub">${LETTERS[i]}</span><span class="otx">${o.html}</span></button>`).join('')}</div>`;
-      if ((q.kind === 'p1' || q.kind === 'p2') && !showText) body += `<p class="exam-note">Chữ của các câu sẽ hiện sau khi bạn chọn. Muốn hiện chữ trước, bật trong mục Tôi › Cài đặt.</p>`;
+      if ((q.kind === 'p1' || q.kind === 'p2') && !showText) body += `<p class="exam-note">Ô đáp án sáng lên theo câu đang được đọc. Chữ của các câu sẽ hiện sau khi bạn chọn (muốn hiện trước, bật trong mục Tôi › Cài đặt).</p>`;
     } else if (q.kind === 'type') {
       body = `<form class="typebox" data-act="typeform" autocomplete="off"><input id="typein" type="text" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Gõ câu trả lời…" aria-label="Câu trả lời"><div class="trow"><button type="button" class="btn ghost" data-act="hint">Gợi ý</button><button type="submit" class="btn primary">Kiểm tra</button></div></form>`;
     } else if (q.kind === 'order') {
