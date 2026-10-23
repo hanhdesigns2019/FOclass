@@ -266,6 +266,8 @@ mark.hl { background: linear-gradient(104deg, transparent 0 2%, var(--hl) 2% 98%
 .opt:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
 .bub { position: relative; flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--ink2); font-size: .85rem; font-weight: 800; color: var(--ink2); overflow: hidden; }
 .bub::before { content: ''; position: absolute; inset: -2px; border-radius: 50%; background: currentColor; transform: scale(0); transition: transform .28s cubic-bezier(.3,1.6,.6,1); }
+.opt.playing { border-color: var(--blue); background: var(--blue-soft); }
+.opt.playing .bub { border-color: var(--blue); color: var(--blue); transform: scale(1.12); transition: transform .15s; }
 .opt.right { border-color: var(--ok); background: var(--ok-bg); box-shadow: 0 3px 0 var(--ok); }
 .opt.right .bub { border-color: var(--ok); color: var(--ok); }
 .opt.wrong { border-color: var(--bad); background: var(--bad-bg); box-shadow: 0 3px 0 var(--bad); }
