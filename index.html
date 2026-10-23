@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Đấu trường từ vựng TOEIC</title>
+  <meta name="description" content="Học từ vựng TOEIC Part 1, Part 2 qua câu, trò chơi, ôn theo ngày và bảng xếp hạng cả lớp.">
+  <meta name="theme-color" content="#2F4BFF">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main id="app" aria-live="polite"><div class="boot"><p>Đang mở lớp học…</p></div></main>
+  <noscript><p style="padding:24px">Trang này cần bật JavaScript.</p></noscript>
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/games.js"></script>
+  <script src="js/screens.js"></script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol === 'https:' && window.top === window.self) {
+      window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+    }
+  </script>
+</body>
+</html>
