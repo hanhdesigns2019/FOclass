@@ -14,7 +14,7 @@
     sample(a, n, exclude) { const ex = new Set(exclude || []); return U.shuffle(a.filter(x => !ex.has(x))).slice(0, n); },
     uid() { return 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); },
     noAccent(s) { return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D'); },
-    norm(s) { return String(s).toLowerCase().replace(/[’‘`]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim(); },
+    norm(s) { return U.noAccent(String(s)).toLowerCase().replace(/[’‘`]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim(); },
     cleanName(s) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, 40); },
     fmt(n) { return Number(n || 0).toLocaleString('vi-VN'); },
     // Ngày theo giờ Việt Nam
@@ -44,6 +44,10 @@
     s.items.forEach(it => { [it.q].concat(it.o).forEach(x => { if (x != null && !seen.has(x)) { seen.add(x); DB.sentsByL[s.L].push(x); } }); });
   });
   DB.itemKey = (setId, n) => 'T:' + setId + ':' + n;
+  DB.itemsBySent = {}; // câu -> các câu đề chứa câu đó
+  D.sets.forEach(s => s.items.forEach(it => { [it.q].concat(it.o).forEach((x, k) => { if (x == null) return; (DB.itemsBySent[x] = DB.itemsBySent[x] || []).push({ set: s, item: it, role: k === 0 && it.q != null ? 'q' : 'o' }); }); }));
+  // bộ thẻ của Lesson: 'lb' = Language Building / ngữ âm, 'de' = từ vựng trong đề
+  DB.deck = (L, deck) => DB.cardsByL[L].filter(c => deck === 'de' ? c.t === 'w' : c.t !== 'w');
   DB.findItem = key => { const m = /^T:(.+):(\d+)$/.exec(key); if (!m) return null; const s = DB.setById[m[1]]; return s ? { set: s, item: s.items.find(i => i.n == m[2]) } : null; };
   DB.describe = key => { // tên dễ đọc cho 1 mục (dùng ở trang giáo viên, sổ từ khó)
     if (DB.cardById[key]) { const c = DB.cardById[key]; return { en: c.en, vi: c.vi, L: c.L }; }
@@ -207,25 +211,82 @@
   };
   if (TTS.ok) { TTS.load(); speechSynthesis.onvoiceschanged = TTS.load; setTimeout(TTS.load, 800); }
 
-  /* ---------- hiệu ứng âm thanh ---------- */
+  /* ---------- hiệu ứng âm thanh (tự tổng hợp, không cần file) ---------- */
   const SFX = {
-    ctx: null,
-    tone(freqs, dur, type, vol) {
-      if (!P.settings.sfx) return;
-      try {
-        SFX.ctx = SFX.ctx || new (window.AudioContext || window.webkitAudioContext)();
-        const c = SFX.ctx; let t = c.currentTime;
-        freqs.forEach(f => {
-          const o = c.createOscillator(), g = c.createGain(); o.type = type || 'triangle'; o.frequency.value = f;
-          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.18, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-          o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + 0.02); t += dur * 0.75;
-        });
-      } catch (e) {}
+    ctx: null, master: null,
+    on() { return !!P.settings.sfx; },
+    ac() {
+      if (!SFX.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+        SFX.ctx = new AC(); SFX.master = SFX.ctx.createGain(); SFX.master.gain.value = 0.9;
+        const comp = SFX.ctx.createDynamicsCompressor(); SFX.master.connect(comp); comp.connect(SFX.ctx.destination);
+      }
+      if (SFX.ctx.state === 'suspended') SFX.ctx.resume();
+      return SFX.ctx;
     },
-    ok() { SFX.tone([660, 990], 0.12); }, bad() { SFX.tone([220, 165], 0.16, 'sawtooth', 0.08); },
-    combo() { SFX.tone([660, 880, 1175], 0.09); }, win() { SFX.tone([523, 659, 784, 1047, 1319], 0.13); },
-    tap() { SFX.tone([520], 0.05, 'sine', 0.06); }, hit() { SFX.tone([180, 120], 0.12, 'square', 0.07); }
+    unlock() { try { SFX.ac(); } catch (e) {} },
+    // một nốt: tần số f (Hz), bắt đầu sau t giây, dài d giây
+    note(f, t, d, o) {
+      o = o || {}; const c = SFX.ac(); if (!c) return; const t0 = c.currentTime + (t || 0);
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.type = o.type || 'triangle'; osc.frequency.setValueAtTime(f, t0);
+      if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t0 + d);
+      if (o.vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = o.vib; lg.gain.value = f * 0.03; l.connect(lg); lg.connect(osc.frequency); l.start(t0); l.stop(t0 + d + 0.05); }
+      const v = o.vol == null ? 0.22 : o.vol, a = o.att || 0.008;
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(v, t0 + a);
+      g.gain.setValueAtTime(v, t0 + Math.max(a, d * (o.hold || 0.15)));
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+      let node = osc;
+      if (o.lp) { const f2 = c.createBiquadFilter(); f2.type = 'lowpass'; f2.frequency.value = o.lp; osc.connect(f2); node = f2; }
+      node.connect(g); g.connect(SFX.master); osc.start(t0); osc.stop(t0 + d + 0.05);
+    },
+    // tiếng ồn ngắn: vỗ tay, cú đánh, vụ nổ
+    noise(t, d, o) {
+      o = o || {}; const c = SFX.ac(); if (!c) return; const t0 = c.currentTime + (t || 0);
+      const len = Math.max(1, Math.floor(c.sampleRate * d)); const buf = c.createBuffer(1, len, c.sampleRate); const ch = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, o.curve || 2);
+      const src = c.createBufferSource(); src.buffer = buf;
+      const f = c.createBiquadFilter(); f.type = o.ftype || 'bandpass'; f.frequency.value = o.freq || 1500; f.Q.value = o.q || 0.8;
+      if (o.sweep) f.frequency.exponentialRampToValueAtTime(o.sweep, t0 + d);
+      const g = c.createGain(); g.gain.value = o.vol == null ? 0.3 : o.vol;
+      src.connect(f); f.connect(g); g.connect(SFX.master); src.start(t0); src.stop(t0 + d + 0.02);
+    },
+    bell(f, t, d, vol) { SFX.note(f, t, d, { type: 'sine', vol: vol || 0.22 }); SFX.note(f * 2, t, d * 0.6, { type: 'sine', vol: (vol || 0.22) * 0.35 }); SFX.note(f * 3.01, t, d * 0.35, { type: 'sine', vol: (vol || 0.22) * 0.12 }); },
+    play(fn) { if (!SFX.on()) return; try { fn(); } catch (e) {} },
+    // --- các âm thanh trong game ---
+    ok() { SFX.play(() => { SFX.bell(1046.5, 0, 0.22); SFX.bell(1568, 0.09, 0.42); }); },                       // ting-ting!
+    bad() { SFX.play(() => { SFX.note(311, 0, 0.18, { type: 'square', vol: 0.12, lp: 900 }); SFX.note(233, 0.16, 0.38, { type: 'square', vol: 0.12, lp: 700, to: 196 }); SFX.noise(0, 0.08, { freq: 300, vol: 0.15 }); }); }, // bùm bụp
+    combo(n) { SFX.play(() => { [1046.5, 1318.5, 1568, 2093].forEach((f, i) => SFX.bell(f, i * 0.06, 0.25, 0.18)); SFX.noise(0.22, 0.3, { ftype: 'highpass', freq: 6000, vol: 0.06 }); }); },
+    tap() { SFX.play(() => SFX.note(880, 0, 0.05, { type: 'sine', vol: 0.06 })); },
+    flip() { SFX.play(() => SFX.noise(0, 0.16, { freq: 900, sweep: 3500, vol: 0.12, curve: 1 })); },
+    match() { SFX.play(() => { SFX.bell(1318.5, 0, 0.18, 0.16); SFX.bell(1760, 0.06, 0.3, 0.16); }); },
+    hit() { SFX.play(() => { SFX.noise(0, 0.18, { ftype: 'lowpass', freq: 1200, vol: 0.5 }); SFX.note(160, 0, 0.22, { type: 'sine', vol: 0.4, to: 60 }); }); },
+    hurt() { SFX.play(() => { SFX.note(200, 0, 0.3, { type: 'sawtooth', vol: 0.12, lp: 800, to: 90 }); SFX.noise(0.02, 0.2, { freq: 400, vol: 0.2 }); }); },
+    bossDown() { SFX.play(() => { SFX.noise(0, 1.1, { ftype: 'lowpass', freq: 2500, sweep: 120, vol: 0.6, curve: 1.5 }); SFX.note(220, 0, 0.9, { type: 'sawtooth', vol: 0.15, lp: 1200, to: 40 }); }); },
+    applause(dur) {
+      SFX.play(() => { dur = dur || 1.8; for (let i = 0; i < dur * 28; i++) { const t = Math.random() * dur; SFX.noise(t, 0.04 + Math.random() * 0.03, { freq: 1200 + Math.random() * 1600, q: 1.2, vol: 0.12 * (1 - t / dur * 0.6), curve: 3 }); } });
+    },
+    fanfare() {
+      SFX.play(() => {
+        const n = (f, t, d) => { SFX.note(f, t, d, { type: 'sawtooth', vol: 0.09, lp: 2600, hold: 0.6 }); SFX.note(f, t, d, { type: 'square', vol: 0.05, lp: 1800, hold: 0.6 }); };
+        n(523.25, 0, 0.14); n(523.25, 0.15, 0.14); n(523.25, 0.3, 0.14); n(698.46, 0.45, 0.5);
+        n(659.25, 0.95, 0.16); n(698.46, 1.12, 0.16); [698.46, 880, 1046.5].forEach(f => n(f, 1.3, 0.9));
+        for (let i = 0; i < 10; i++) SFX.bell(2093 + Math.random() * 1500, 1.3 + i * 0.07, 0.25, 0.06);
+      });
+    },
+    win() { SFX.fanfare(); setTimeout(() => SFX.applause(1.8), 1250); },
+    good() { SFX.play(() => { [784, 988, 1175, 1568].forEach((f, i) => SFX.bell(f, i * 0.1, 0.4, 0.17)); }); },
+    lose() { SFX.play(() => { [466.16, 440, 415.3].forEach((f, i) => SFX.note(f, i * 0.42, 0.4, { type: 'sawtooth', vol: 0.12, lp: 1100, hold: 0.5 })); SFX.note(392, 1.26, 1.0, { type: 'sawtooth', vol: 0.12, lp: 1100, hold: 0.5, vib: 6 }); }); },
+    levelUp() { SFX.play(() => { [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568, 2093].forEach((f, i) => SFX.bell(f, i * 0.07, 0.35, 0.16)); SFX.noise(0.45, 0.6, { ftype: 'highpass', freq: 7000, vol: 0.08, curve: 1 }); }); },
+    badge() { SFX.play(() => { [1568, 2093, 2637].forEach((f, i) => SFX.bell(f, i * 0.08, 0.5, 0.14)); }); },
+    // lời khen bằng tiếng Anh ở màn kết thúc
+    cheer(kind) {
+      if (!SFX.on()) return;
+      const lines = { win: ['Excellent!', 'Great job!', 'Amazing work!', 'Congratulations!', 'You did it!', 'Fantastic!'], good: ['Well done!', 'Nice work!', 'Good job!'], try: ["Don't give up!", 'Keep going!', 'You can do it!'] }[kind] || ['Good job!'];
+      setTimeout(() => TTS.speak(lines[Math.floor(Math.random() * lines.length)], 'B', 0.95), kind === 'win' ? 2300 : 700);
+    }
   };
+  document.addEventListener('pointerdown', () => SFX.unlock(), { once: true });
 
   /* ---------- kết nối Google Sheets (Apps Script) ---------- */
   const API = {

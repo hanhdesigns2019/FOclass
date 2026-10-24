@@ -21,8 +21,22 @@
   }
   const spk = (text, slot, label) => `<button class="spk" type="button" data-say="${esc(text)}" data-slot="${slot || 'A'}" aria-label="${esc(label || 'Nghe')}">🔊</button>`;
   const speakText = c => c.t === 'ph' ? c.en.replace(/\s*\(.*\)/, '') : c.en.replace(/\s*\((.*?)\)/g, ', $1').replace(/\s~\s/g, ', ').replace(/\[.*?\]/g, '').replace(/\s–\s/g, '. ').replace(/\s\/\s/g, '. ');
-  const isP1 = c => c.L === 'L4' || c.L === 'L5';
+  const isP1 = c => c.t === 'v' && (c.L === 'L4' || c.L === 'L5');
   const isP2 = c => c.t === 'v' && !isP1(c);
+  // thẻ học qua một câu ví dụ: Language Building Part 1 và từ vựng trong đề
+  const exLike = c => isP1(c) || c.t === 'w';
+  // từ trong đề: mỗi lần chọn ngẫu nhiên một câu đề chứa từ đó
+  // trả về bản sao của thẻ kèm câu ví dụ đã chọn (không sửa thẻ gốc, để mỗi câu hỏi giữ đúng câu của nó)
+  function prep(c, k) {
+    if (c.t !== 'w' || !c.exs || !c.exs.length) return c;
+    const e = c.exs[k == null ? Math.floor(Math.random() * c.exs.length) : k];
+    const s = DB.sent(e[0]);
+    return Object.assign({}, c, { ex: s[0], exVi: s[1], cl: e[1], img: e[2] || '', _sid: e[0], _item: e[3] });
+  }
+  // hiện tối đa 2 câu đề có chứa từ (mặt sau thẻ, thẻ từ mới)
+  function exList(c, n) {
+    return (c.exs || []).slice(0, n || 2).map(e => { const s = DB.sent(e[0]); return `<div class="exw"><p class="ex">${markHL(s[0], [e[1]])} ${spk(s[0])}</p><p class="vi">${esc(s[1])}</p></div>`; }).join('');
+  }
   const hlOf = (c, fld) => (c.hl || []).filter(h => h[0] === fld).map(h => h[1]);
   function dialogue(c, showVi) {
     return `<div class="dlg">
@@ -30,7 +44,7 @@
       <div class="dl a"><span class="who">Đáp</span><p>${markHL(c.a, hlOf(c, 'a'))} ${spk(c.a, 'B')}</p>${showVi ? `<p class="vi">${esc(c.aVi)}</p>` : ''}</div></div>`;
   }
   function pool(c, n) {
-    let ps = DB.cardsByL[c.L].filter(x => x.id !== c.id);
+    let ps = DB.cardsByL[c.L].filter(x => x.id !== c.id && x.t === c.t);
     if (ps.length < n + 3) ps = ps.concat(DB.cards.filter(x => x.L !== c.L && x.t === c.t && isP1(x) === isP1(c)));
     return ps;
   }
@@ -44,19 +58,22 @@
   /* ---------- sinh câu hỏi cho thẻ từ ---------- */
   const G = {};
   G.en2vi = c => {
+    c = prep(c);
     const d = distinctBy(pool(c, 3), x => x.vi, 3, [c.vi]);
     return { kind: 'mcq', id: c.id, base: 10, tag: 'Chọn nghĩa đúng', auto: () => TTS.speak(speakText(c)),
       html: `<div class="term">${pic(c, 'sm')}<h2 class="word">${esc(c.en)}</h2><p class="ipa">${esc(c.ipa || '')}${c.pos ? ` <i>(${esc(c.pos)})</i>` : ''}</p>${spk(speakText(c))}</div>`,
       options: mcqOpts(esc(c.vi), d.map(x => esc(x.vi))), reveal: revealCard(c) };
   };
   G.vi2en = c => {
+    c = prep(c);
     const d = distinctBy(pool(c, 3), x => x.en, 3, [c.en]);
     return { kind: 'mcq', id: c.id, base: 10, tag: 'Chọn từ tiếng Anh', html: `<div class="term">${pic(c, 'sm')}<h2 class="word vi-word">${esc(c.vi)}</h2></div>`,
       options: mcqOpts(esc(c.en), d.map(x => esc(x.en))), after: () => TTS.speak(speakText(c)), reveal: revealCard(c) };
   };
   G.meaning = c => {
     if (c.t === 'ph') return G.en2vi(c);
-    if (isP1(c)) {
+    if (exLike(c)) {
+      c = prep(c);
       const d = distinctBy(pool(c, 3), x => x.vi, 3, [c.vi]);
       return { kind: 'mcq', id: c.id, base: 10, tag: 'Đoán nghĩa trong câu', auto: () => TTS.speak(c.ex),
         html: `<div class="ctx">${pic(c, 'md')}<p class="sent">${markHL(c.ex, [c.cl])} ${spk(c.ex)}</p><p class="ask">Từ tô vàng nghĩa là gì?</p></div>`,
@@ -99,8 +116,10 @@
         html: `<div class="listen">${bigPlay(speakText(c))}<p class="ask">Gõ từ bạn nghe được <span class="muted">(nghĩa: ${esc(c.vi)})</span></p></div>`,
         answer: [c.en.replace(/\s*\(.*\)/, '')], hint: c.en[0], reveal: revealCard(c) };
     }
-    if (isP1(c)) {
-      const blank = c.ex.replace(new RegExp('\\b' + c.cl + '\\b'), '_____');
+    if (exLike(c)) {
+      c = prep(c);
+      const at = c.ex.indexOf(c.cl);
+      const blank = at >= 0 ? c.ex.slice(0, at) + '_____' + c.ex.slice(at + c.cl.length) : c.ex;
       return { kind: 'type', id: c.id, base: 15, tag: 'Điền từ vào câu',
         html: `<div class="ctx">${pic(c, 'md')}<p class="sent">${esc(blank).replace('_____', '<span class="blank">_____</span>')}</p><p class="vi">${esc(c.exVi)}</p><p class="ask">Gợi ý: dùng từ <b>${esc(c.en)}</b> (${esc(c.vi)}) ở dạng đúng</p></div>`,
         answer: [c.cl], hint: c.cl.slice(0, 2), after: () => TTS.speak(c.ex), reveal: `<p class="rv-en">${markHL(c.ex, [c.cl])}</p><p class="rv-vi">${esc(c.exVi)}</p>` };
@@ -120,13 +139,14 @@
   G.order = c => {
     if (c.t === 'ph') return G.listen(c);
     let en, vi, slot = 'A';
-    if (isP1(c)) { en = c.ex; vi = c.exVi; }
+    if (c.t === 'w') { c = prep(c); if (c.ex.split(' ').length > 14) return G.wsent(c); }
+    if (exLike(c)) { en = c.ex; vi = c.exVi; }
     else {
       const useA = c.a.split(' ').length >= 3 || c.q.split(' ').length > 12;
       en = useA ? c.a : c.q; vi = useA ? c.aVi : c.qVi; slot = useA ? 'B' : 'A';
       if (en.split(' ').length < 3) { en = c.q; vi = c.qVi; slot = 'A'; }
     }
-    return orderQ(c.id, en, vi, slot, isP1(c) ? pic(c, 'sm') : (c.pair || !c.q ? '' : `<p class="ctx-line"><span class="who">${slot === 'B' ? 'Hỏi' : 'Đáp'}</span> ${esc(slot === 'B' ? c.q : c.a)}</p>`), revealCard(c));
+    return orderQ(c.id, en, vi, slot, exLike(c) ? pic(c, 'sm') : (c.pair || !c.q ? '' : `<p class="ctx-line"><span class="who">${slot === 'B' ? 'Hỏi' : 'Đáp'}</span> ${esc(slot === 'B' ? c.q : c.a)}</p>`), revealCard(c));
   };
   function orderQ(id, en, vi, slot, extra, reveal) {
     const words = en.split(' ');
@@ -134,12 +154,14 @@
       words, answer: [en], after: () => TTS.speak(en, slot), reveal: reveal || `<p class="rv-en">${esc(en)}</p><p class="rv-vi">${esc(vi)}</p>` };
   }
   G.p1 = c => {
+    if (c.t === 'w') return G.wtest(c);
     if (!isP1(c)) return c.t === 'ph' ? G.sound(c) : G.p2(c);
     const others = distinctBy(DB.cards.filter(x => isP1(x) && x.id !== c.id), x => x.ex, 3, [c.ex]);
     const st = U.shuffle([c.ex].concat(others.map(x => x.ex)));
     return p1Q(c.id, c.img, st, st.indexOf(c.ex), st.map(s => s === c.ex ? c.exVi : (DB.cards.find(x => x.ex === s) || {}).exVi), 'Part 1 mini');
   };
   G.p2 = c => {
+    if (c.t === 'w') return G.wtest(c);
     if (!isP2(c)) return G.p1(c);
     const grp = c.g;
     let others = DB.cards.filter(x => isP2(x) && x.id !== c.id && x.g !== grp && ['who', 'where', 'when', 'what', 'which', 'why', 'how'].includes(x.g));
@@ -150,7 +172,7 @@
   };
   function revealCard(c) {
     if (c.t === 'ph') return `<p class="rv-w"><b>${esc(c.en)}</b> ${esc(c.ipa)} = ${esc(c.vi)} <span class="chip">${esc(c.snd)}</span> ${spk(speakText(c))}</p>`;
-    if (isP1(c)) return `<p class="rv-w"><b>${esc(c.en)}</b> ${esc(c.ipa || '')} = ${esc(c.vi)} ${spk(speakText(c))}</p><p class="rv-en">${markHL(c.ex, [c.cl])}</p><p class="rv-vi">${esc(c.exVi)}</p>`;
+    if (exLike(c)) return `<p class="rv-w"><b>${esc(c.en)}</b> ${esc(c.ipa || '')} = ${esc(c.vi)} ${spk(speakText(c))}</p><p class="rv-en">${markHL(c.ex, [c.cl])}</p><p class="rv-vi">${esc(c.exVi)}</p>`;
     return `<p class="rv-w"><b>${esc(c.en)}</b> = ${esc(c.vi)}</p>` + dialogue(c, true);
   }
   function bigPlay(text, slot) { return `<button class="bigplay" type="button" data-say="${esc(text)}" data-slot="${slot || 'A'}" aria-label="Nghe lại"><span>▶</span></button>`; }
@@ -178,6 +200,27 @@
     return Object.assign(p2Q(key, DB.sent(it.q)[0], DB.sent(it.q)[1], it.o.map(i => DB.sent(i)[0]), it.a, it.o.map(i => DB.sent(i)[1]), set.title + ' · Câu ' + it.n), { n: it.n });
   };
 
+  /* ---------- từ trong đề: hiểu cả câu, làm câu đề chứa từ ---------- */
+  G.wsent = c => {
+    c = prep(c);
+    const ids = DB.sentsByL[c.L].length >= 6 ? DB.sentsByL[c.L] : DB.sents.map((_, i) => i);
+    const d = distinctBy(ids.filter(x => x !== c._sid).map(x => DB.sent(x)), x => x[1], 3, [c.exVi]);
+    return { kind: 'mcq', id: c.id, base: 10, tag: 'Hiểu cả câu', auto: () => TTS.speak(c.ex),
+      html: `<div class="ctx">${pic(c, 'md')}<p class="sent">${markHL(c.ex, [c.cl])} ${spk(c.ex)}</p><p class="ask">Cả câu này nghĩa là gì? <span class="muted">(${esc(c.cl)} = ${esc(c.vi)})</span></p></div>`,
+      options: mcqOpts(esc(c.exVi), d.map(x => esc(x[1]))), reveal: revealCard(c) };
+  };
+  G.wtest = c => {
+    const usable = sid => (DB.itemsBySent[sid] || []).filter(x => x.set.part === 2 || x.set.photo);
+    const ks = (c.exs || []).map((e, k) => k).filter(k => usable(c.exs[k][0]).length);
+    if (!ks.length) return G.wsent(c);
+    c = prep(c, U.pick(ks));
+    const its = usable(c._sid);
+    const pick = its.find(x => x.role === 'q') || U.pick(its);
+    const q = G.testItem(pick.set, pick.item);
+    q.tag = 'Câu đề có từ “' + c.en + '”';
+    return q;
+  };
+
   /* ---------- học câu (dịch câu trong đề) ---------- */
   G.sentVi = (sid, poolIds, listenOnly) => {
     const s = DB.sent(sid);
@@ -200,18 +243,19 @@
     return ids.slice().sort((a, b) => scoreOf(b) - scoreOf(a)).slice(0, n);
   }
   const MODE_GEN = {
-    meaning: c => U.pick([G.meaning, G.meaning, G.en2vi, G.vi2en])(c),
+    meaning: c => U.pick(c.t === 'w' ? [G.meaning, G.meaning, G.wsent, G.en2vi, G.vi2en] : [G.meaning, G.meaning, G.en2vi, G.vi2en])(c),
+    wsent: c => c.t === 'w' ? G.wsent(c) : G.meaning(c),
     listen: c => c.t === 'ph' ? U.pick([G.listen, G.sound])(c) : G.listen(c),
     write: c => G.cloze(c),
     order: c => G.order(c),
-    mini: c => c.t === 'ph' ? G.sound(c) : isP1(c) ? G.p1(c) : G.p2(c),
-    mix: c => U.pick(c.t === 'ph' ? [G.en2vi, G.vi2en, G.listen, G.sound, G.cloze] : isP1(c) ? [G.meaning, G.en2vi, G.vi2en, G.listen, G.cloze, G.order, G.p1] : [G.meaning, G.en2vi, G.vi2en, G.listen, G.cloze, G.order, G.p2, G.p2])(c)
+    mini: c => c.t === 'ph' ? G.sound(c) : c.t === 'w' ? G.wtest(c) : isP1(c) ? G.p1(c) : G.p2(c),
+    mix: c => U.pick(c.t === 'ph' ? [G.en2vi, G.vi2en, G.listen, G.sound, G.cloze] : c.t === 'w' ? [G.meaning, G.wsent, G.en2vi, G.vi2en, G.listen, G.cloze, G.order, G.wtest] : isP1(c) ? [G.meaning, G.en2vi, G.vi2en, G.listen, G.cloze, G.order, G.p1] : [G.meaning, G.en2vi, G.vi2en, G.listen, G.cloze, G.order, G.p2, G.p2])(c)
   };
   function testItemsOf(L) {
     const out = []; DB.setsByL[L].forEach(s => { if (s.part === 2 || s.photo) s.items.forEach(it => out.push({ s, it })); }); return out;
   }
-  function buildLessonSession(p, L, mode, n) {
-    const cards = DB.cardsByL[L];
+  function buildLessonSession(p, L, mode, n, deck) {
+    const cards = DB.deck(L, deck);
     if (mode === 'sent') {
       const ids = DB.sentsByL[L]; const chosen = pickIds(p, ids.map(i => 'S:' + i), n || 10).map(x => +x.slice(2));
       return chosen.map(sid => { const r = Math.random(); const len = DB.sent(sid)[0].split(' ').length; return (r < 0.25 && len >= 3 && len <= 12) ? G.sentOrder(sid) : G.sentVi(sid, ids, r > 0.65); });
@@ -225,9 +269,9 @@
     if (mode === 'mix') { const items = U.shuffle(testItemsOf(L)).slice(0, 2); items.forEach(x => qs.splice(Math.floor(Math.random() * qs.length), 0, G.testItem(x.s, x.it))); }
     return qs;
   }
-  function buildBoss(p, L, locks) {
+  function buildBoss(p, L, locks, deck) {
     locks = locks || {};
-    const cards = L ? DB.cardsByL[L] : DB.cards.filter(c => c.t === 'v' && !locks[c.L]);
+    const cards = L ? (deck ? DB.deck(L, deck) : DB.cardsByL[L]) : DB.cards.filter(c => (c.t === 'v' || c.t === 'w') && !locks[c.L]);
     const qs = pickCards(p, cards.length ? cards : [], 10).map(c => MODE_GEN.mix(c));
     const items = U.shuffle(L ? testItemsOf(L) : DB.lessons.filter(l => !locks[l.id]).reduce((a, l) => a.concat(testItemsOf(l.id)), [])).slice(0, cards.length ? 3 : 13);
     items.forEach(x => qs.splice(Math.floor(Math.random() * (qs.length + 1)), 0, G.testItem(x.s, x.it)));
@@ -270,7 +314,7 @@
     const n = st.qs.filter(q => q.kind !== 'intro').length; const done = st.qs.slice(0, st.i).filter(q => q.kind !== 'intro').length;
     const mult = st.combo >= 5 ? '<span class="mult">×2</span>' : '';
     const boss = st.boss ? `<div class="boss-bar"><span class="boss-face ${st.hp <= 0 ? 'ko' : ''}" aria-hidden="true">👾</span><div class="hp"><i style="width:${Math.max(0, st.hp)}%"></i></div><span class="hearts" aria-label="Còn ${st.hearts} tim">${'❤️'.repeat(st.hearts)}${'🤍'.repeat(3 - st.hearts)}</span></div>` : '';
-    return `<header class="ghud"><button class="x" data-act="quit" aria-label="Thoát">✕</button><div class="prog"><i style="width:${Math.round(done / Math.max(1, n) * 100)}%"></i></div><div class="gpts"><b>${U.fmt(st.pts)}</b>${st.combo >= 2 ? `<span class="combo">🔥${st.combo}</span>` : ''}${mult}</div></header>${boss}`;
+    return `<header class="ghud"><button class="x" data-act="quit" aria-label="Thoát">✕</button><div class="prog"><i style="width:${Math.round(done / Math.max(1, n) * 100)}%"></i></div><div class="gpts"><b>${U.fmt(st.pts)}</b>${st.combo >= 2 ? `<span class="combo">🔥${st.combo}</span>` : ''}${mult}</div><button class="sfxbtn" data-act="sfx" type="button" aria-label="${P.settings.sfx ? 'Tắt' : 'Bật'} âm thanh hiệu ứng" aria-pressed="${P.settings.sfx}">${P.settings.sfx ? '🔔' : '🔕'}</button></header>${boss}`;
   }
   function renderQ() {
     const st = Run.cur; const app = U.$('#app');
@@ -294,8 +338,8 @@
     if (q.audio) setTimeout(() => q.audio(), 250); else if (q.auto) setTimeout(() => q.auto(), 200);
   }
   function renderIntro(q) {
-    const c = q.card, st = Run.cur;
-    const back = c.t === 'ph' ? `<p class="ex">Âm <span class="chip">${esc(c.snd)}</span> ${esc(c.sndName || '')}</p>` : isP1(c) ? `<p class="ex">${markHL(c.ex, [c.cl])} ${spk(c.ex)}</p><p class="vi">${esc(c.exVi)}</p>` : dialogue(c, true);
+    const c = prep(q.card, 0), st = Run.cur;
+    const back = c.t === 'ph' ? `<p class="ex">Âm <span class="chip">${esc(c.snd)}</span> ${esc(c.sndName || '')}</p>` : c.t === 'w' ? exList(c, 1) : isP1(c) ? `<p class="ex">${markHL(c.ex, [c.cl])} ${spk(c.ex)}</p><p class="vi">${esc(c.exVi)}</p>` : dialogue(c, true);
     U.$('#app').innerHTML = `<section class="game">${hud(st)}<div class="qwrap intro"><p class="qtag">Từ mới</p><div class="flash-face">${pic(c, 'lg')}<h2 class="word">${esc(c.en)}</h2><p class="ipa">${esc(c.ipa || '')}${c.pos ? ` <i>(${esc(c.pos)})</i>` : ''}</p>${spk(speakText(c))}<p class="mean">${esc(c.vi)}</p>${back}</div><button class="btn primary wide" data-act="next">Đã hiểu, kiểm tra mình nhé</button></div></section>`;
     setTimeout(() => TTS.speak(speakText(c)), 250);
   }
@@ -311,12 +355,13 @@
       st.correct++; st.combo++; st.maxCombo = Math.max(st.maxCombo, st.combo);
       gain = (st.hinted ? 10 : q.base) + (q.kind === 'mcq' ? (secs < 5 ? 5 : secs < 9 ? 2 : 0) : 0);
       if (st.combo >= 5) gain *= 2;
-      st.pts += gain; st.combo >= 5 && st.combo % 5 === 0 ? SFX.combo() : SFX.ok();
+      st.pts += gain;
+      if (st.combo >= 3 && st.combo % 5 === 0) { SFX.combo(); comboPop(st.combo); } else SFX.ok();
       if (q.cat === 'p1') p.stats.p1++; if (q.cat === 'p2') p.stats.p2++;
-      if (st.boss) { st.hp -= st.dmg; SFX.hit(); }
+      if (st.boss) { st.hp -= st.dmg; setTimeout(SFX.hit, 120); bossShake('hit'); }
     } else {
       st.combo = 0; SFX.bad(); if (q.id) st.wrong.push(q.id);
-      if (st.boss) st.hearts--;
+      if (st.boss) { st.hearts--; setTimeout(SFX.hurt, 150); bossShake('hurt'); }
     }
     p.stats.answered++; if (ok) p.stats.correct++;
     if (q.id) SRS.grade(p, q.id, ok);
@@ -337,8 +382,17 @@
     if (q.after && (ok || q.kind !== 'mcq')) setTimeout(q.after, 150);
     setTimeout(() => { const b = U.$('#fb [data-act="next"]'); b && b.focus({ preventScroll: true }); }, 50);
   }
+  // hiệu ứng nhỏ: combo, boss trúng đòn
+  function comboPop(n) {
+    const g = U.$('.game'); if (!g) return; const d = document.createElement('div'); d.className = 'combo-pop'; d.setAttribute('aria-hidden', 'true');
+    d.textContent = n >= 10 ? `🔥 ${n} câu liên tiếp!` : '🔥 Combo ×2!'; g.appendChild(d); setTimeout(() => d.remove(), 1300);
+  }
+  function bossShake(kind) {
+    setTimeout(() => { const f = U.$('.boss-face'); if (f) { f.classList.remove('hit', 'hurt'); void f.offsetWidth; f.classList.add(kind); } const g = U.$('.game'); if (kind === 'hurt' && g) { g.classList.remove('jolt'); void g.offsetWidth; g.classList.add('jolt'); } }, 60);
+  }
   function finish() {
     const st = Run.cur; const p = P.cur; TTS.stop(); if (st.finished) return; st.finished = true;
+    st.levelBefore = window.TV.levelOf(p.points).idx;
     document.body.classList.remove('in-game');
     const ctx = { maxCombo: st.maxCombo, perfect: st.total >= 10 && st.correct === st.total };
     let bonus = 0, notes = [];
@@ -359,6 +413,7 @@
     if (st.total > 0) { p.stats.sessions++; Score.touchStreak(p); }
     Score.addPoints(p, total);
     const badges = Score.checkBadges(p, ctx);
+    const lv = window.TV.levelOf(p.points); if (lv.idx > st.levelBefore) { st.levelUp = lv; notes.unshift(`Lên cấp: ${lv.icon} ${lv.name}!`); }
     P.saveNow();
     if (st.total > 0) API.queue(p, { date: U.dayStr(), at: Date.now(), pts: total, correct: st.correct, total: st.total, mode: st.mode, L: st.L || '', wrong: st.wrong.slice(0, 40) });
     renderEnd({ st, total, notes, badges });
@@ -368,7 +423,15 @@
     const wrongIds = [...new Set(st.wrong)];
     const win = st.boss ? st.hp <= 0 : acc >= 60;
     const title = st.boss ? (win ? 'Boss đã gục ngã!' : 'Boss vẫn còn đứng…') : acc === 100 ? 'Hoàn hảo!' : acc >= 80 ? 'Làm tốt lắm!' : acc >= 50 ? 'Cố thêm chút nữa!' : 'Ôn lại rồi thử tiếp nhé';
-    if (win) { SFX.win(); window.TVUI && window.TVUI.confetti(); }
+    // âm thanh chúc mừng
+    if (st.boss && win) { SFX.bossDown(); setTimeout(SFX.win, 700); setTimeout(() => window.TVUI && window.TVUI.confetti(), 700); SFX.cheer('win'); }
+    else if (st.boss) { SFX.lose(); SFX.cheer('try'); }
+    else if (st.total === 0) {}
+    else if (acc >= 80) { SFX.win(); window.TVUI && window.TVUI.confetti(); SFX.cheer('win'); }
+    else if (acc >= 50) { SFX.good(); SFX.cheer('good'); }
+    else { SFX.lose(); SFX.cheer('try'); }
+    if (st.levelUp) setTimeout(SFX.levelUp, 2600);
+    if (badges.length) setTimeout(SFX.badge, st.levelUp ? 3300 : 2600);
     U.$('#app').innerHTML = `<section class="end">
       <div class="end-top ${win ? 'win' : ''}"><p class="end-emo" aria-hidden="true">${st.boss ? (win ? '🏆' : '👾') : acc >= 80 ? '🌟' : acc >= 50 ? '💪' : '📖'}</p><h1>${title}</h1>
       <p class="end-pts"><b>+${U.fmt(total)}</b> điểm</p>
@@ -400,6 +463,7 @@
     const a = t.dataset.act;
     if (a === 'next') { st.i++; renderQ(); }
     else if (a === 'replay') { const q = st.qs[st.i]; q.audio && q.audio(); }
+    else if (a === 'sfx') { P.settings.sfx = !P.settings.sfx; P.saveNow(); t.textContent = P.settings.sfx ? '🔔' : '🔕'; t.setAttribute('aria-pressed', P.settings.sfx); if (P.settings.sfx) SFX.ok(); }
     else if (a === 'quit') {
       if (st.total === 0) { TTS.stop(); document.body.classList.remove('in-game'); Run.cur = null; location.hash = st.back || '#/'; window.TVUI.route(); return; }
       if (U.$('.qsheet')) return;
@@ -442,12 +506,12 @@
   function match(opts) {
     // opts: {L, back}
     const p = P.cur; TTS.unlock();
-    let cards = DB.cardsByL[opts.L];
+    let cards = DB.deck(opts.L, opts.deck);
     const chosen = pickCards(p, cards, 6);
     const pairMode = chosen.every(c => c.pair);
     const left = chosen.map(c => ({ id: c.id, html: esc(pairMode ? c.q : c.t === 'ph' ? c.en : c.en.replace(/ – .*/, '')), say: pairMode ? c.q : speakText(c) }));
     const right = chosen.map(c => ({ id: c.id, html: esc(pairMode ? c.a : c.vi) }));
-    const ms = { L: opts.L, back: opts.back, left: U.shuffle(left), right: U.shuffle(right), sel: null, done: new Set(), miss: new Set(), t0: Date.now(), penalty: 0, pairMode, chosen };
+    const ms = { L: opts.L, deck: opts.deck, back: opts.back, left: U.shuffle(left), right: U.shuffle(right), sel: null, done: new Set(), miss: new Set(), t0: Date.now(), penalty: 0, pairMode, chosen };
     Run.match = ms; document.body.classList.add('in-game');
     U.$('#app').innerHTML = `<section class="game match"><header class="ghud"><button class="x" data-mact="quit" aria-label="Thoát">✕</button><div class="mtitle">${pairMode ? 'Nối câu hỏi với câu đáp' : 'Nối từ với nghĩa'}</div><div class="timer" id="mtimer">0.0s</div></header>
       <div class="mgrid"><div class="mcol">${ms.left.map(x => `<button class="mtile en" data-mt="L:${x.id}" type="button">${x.html}</button>`).join('')}</div><div class="mcol">${ms.right.map(x => `<button class="mtile vi" data-mt="R:${x.id}" type="button">${x.html}</button>`).join('')}</div></div>
@@ -462,7 +526,7 @@
     if (side === 'L') { const c = DB.cardById[id]; if (c) TTS.speak(ms.pairMode ? c.q : speakText(c)); }
     if (!ms.sel || ms.sel.side === side) { U.$$('.mtile.sel').forEach(x => x.classList.remove('sel')); t.classList.add('sel'); ms.sel = { side, id, el: t }; SFX.tap(); return; }
     if (ms.sel.id === id) {
-      SFX.ok(); [ms.sel.el, t].forEach(x => { x.classList.remove('sel'); x.classList.add('gone'); x.disabled = true; }); ms.done.add(id); ms.sel = null;
+      SFX.match(); [ms.sel.el, t].forEach(x => { x.classList.remove('sel'); x.classList.add('gone'); x.disabled = true; }); ms.done.add(id); ms.sel = null;
       if (ms.done.size === ms.chosen.length) matchEnd();
     } else {
       SFX.bad(); ms.penalty += 2; ms.miss.add(id); ms.miss.add(ms.sel.id); const a = ms.sel.el; [a, t].forEach(x => { x.classList.add('shake'); setTimeout(() => x.classList.remove('shake', 'sel'), 400); }); ms.sel = null;
@@ -473,7 +537,7 @@
     const secs = (Date.now() - ms.t0) / 1000 + ms.penalty;
     ms.chosen.forEach(c => SRS.grade(p, c.id, !ms.miss.has(c.id)));
     const pts = ms.chosen.length * 5 + Math.max(0, Math.round(45 - secs));
-    const st = { mode: 'match', L: ms.L, back: ms.back, pts, correct: ms.chosen.length - [...ms.miss].filter(id => ms.chosen.some(c => c.id === id)).length, total: ms.chosen.length, maxCombo: 0, wrong: [...ms.miss], qs: [], boss: false, finished: true };
+    const st = { mode: 'match', L: ms.L, deck: ms.deck, back: ms.back, pts, correct: ms.chosen.length - [...ms.miss].filter(id => ms.chosen.some(c => c.id === id)).length, total: ms.chosen.length, maxCombo: 0, wrong: [...ms.miss], qs: [], boss: false, finished: true };
     Run.match = null; Run.cur = st;
     const fast = secs < 20 && ms.miss.size === 0;
     p.stats.answered += st.total; p.stats.correct += st.correct;
@@ -488,14 +552,14 @@
   /* ---------- Thẻ từ (lật thẻ) ---------- */
   function flash(opts) {
     const p = P.cur; TTS.unlock();
-    const cards = opts.cards || DB.cardsByL[opts.L];
+    const cards = opts.cards || DB.deck(opts.L, opts.deck);
     const fs = Run.flash = { L: opts.L, back: opts.back, cards: opts.shuffle ? U.shuffle(cards) : cards.slice(), i: 0, flipped: false, seen: new Set() };
     drawFlash();
   }
   function drawFlash() {
-    const fs = Run.flash, c = fs.cards[fs.i], p = P.cur; fs.flipped = false; fs.seen.add(c.id);
+    const fs = Run.flash, c = prep(fs.cards[fs.i], 0), p = P.cur; fs.flipped = false; fs.seen.add(c.id);
     const box = SRS.box(p, c.id);
-    const back = c.t === 'ph' ? `<p class="ex">Âm <span class="chip">${esc(c.snd)}</span> ${esc(c.sndName || '')}</p>` : isP1(c) ? `<p class="ex">${markHL(c.ex, [c.cl])} ${spk(c.ex)}</p><p class="vi">${esc(c.exVi)}</p>` : dialogue(c, true);
+    const back = c.t === 'ph' ? `<p class="ex">Âm <span class="chip">${esc(c.snd)}</span> ${esc(c.sndName || '')}</p>` : c.t === 'w' ? exList(c, 2) : isP1(c) ? `<p class="ex">${markHL(c.ex, [c.cl])} ${spk(c.ex)}</p><p class="vi">${esc(c.exVi)}</p>` : dialogue(c, true);
     U.$('#app').innerHTML = `<section class="flashwrap"><header class="ghud"><button class="x" data-fact="quit" aria-label="Đóng">✕</button><div class="prog"><i style="width:${Math.round((fs.i + 1) / fs.cards.length * 100)}%"></i></div><div class="gpts"><b>${fs.i + 1}</b>/${fs.cards.length}</div></header>
       <div class="flash" data-fact="flip" role="button" tabindex="0" aria-label="Lật thẻ">
         <div class="flash-face face-front">${pic(c, 'lg')}<h2 class="word">${esc(c.en)}</h2><p class="ipa">${esc(c.ipa || '')}${c.pos ? ` <i>(${esc(c.pos)})</i>` : ''}</p>${spk(speakText(c))}<p class="muted tap">Chạm để lật thẻ</p></div>
@@ -508,14 +572,14 @@
   document.addEventListener('click', e => {
     const fs = Run.flash; if (!fs || !U.$('.flashwrap')) return;
     const sayBtn = e.target.closest('[data-say]'); if (sayBtn) { e.stopPropagation(); TTS.speak(sayBtn.dataset.say, sayBtn.dataset.slot); return; }
-    const t = e.target.closest('[data-fact]'); if (!t) return; const a = t.dataset.fact; const p = P.cur; const c = fs.cards[fs.i];
-    if (a === 'flip') { fs.flipped = !fs.flipped; U.$('.flash').classList.toggle('flipped', fs.flipped); if (fs.flipped) TTS.speak(c.ex || c.q || speakText(c)); }
+    const t = e.target.closest('[data-fact]'); if (!t) return; const a = t.dataset.fact; const p = P.cur; const c = prep(fs.cards[fs.i], 0);
+    if (a === 'flip') { fs.flipped = !fs.flipped; SFX.flip(); U.$('.flash').classList.toggle('flipped', fs.flipped); if (fs.flipped) TTS.speak(c.ex || c.q || speakText(c)); }
     else if (a === 'prev') { if (fs.i > 0) { fs.i--; drawFlash(); } }
     else if (a === 'yes' || a === 'no') {
       const r = p.srs[c.id];
       if (a === 'no') { p.srs[c.id] = [1, U.dayNum(), (r ? r[2] : 0), (r ? r[3] : 0) + 1]; }
       else if (!r) { p.srs[c.id] = [1, U.dayNum() + 1, 0, 1]; }
-      Score.addPoints(p, 2); P.save(); SFX.tap();
+      Score.addPoints(p, 2); P.save(); a === 'yes' ? SFX.ok() : SFX.tap();
       if (fs.i < fs.cards.length - 1) { fs.i++; drawFlash(); } else endFlash();
     } else if (a === 'quit') endFlash();
   });
@@ -532,5 +596,5 @@
     run({ title: set.title, qs, mode: 'test', L: set.L, back, setId: set.id });
   }
 
-  window.TVG = { G, run, abandon, match, flash, exam, buildLessonSession, buildBoss, buildMission, Run, markHL, pic, spk, speakText, dialogue, isP1 };
+  window.TVG = { G, run, abandon, match, flash, exam, buildLessonSession, buildBoss, buildMission, Run, markHL, pic, spk, speakText, dialogue, isP1, prep };
 })();

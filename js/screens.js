@@ -139,14 +139,16 @@
     ph: [['flash', '📇', 'Thẻ từ', 'Nghe, xem phiên âm, lật thẻ'], ['listen', '🎧', 'Nghe & chọn', 'Nghe từ, đoán âm'], ['meaning', '🎯', 'Đoán nghĩa', 'Chọn nghĩa đúng'], ['match', '🔗', 'Nối nhanh', 'Nối từ với nghĩa, tính giờ'], ['write', '✍️', 'Nghe viết', 'Nghe và gõ lại từ'], ['mix', '🔀', 'Trộn tất cả', 'Đảo đủ các dạng'], ['boss', '👾', 'Đánh boss', '3 tim, hạ gục boss']],
     p1: [['flash', '📇', 'Thẻ từ', 'Ảnh, phiên âm, câu mẫu'], ['meaning', '🎯', 'Đoán nghĩa trong câu', 'Từ tô vàng nghĩa là gì?'], ['match', '🔗', 'Nối nhanh', 'Nối từ với nghĩa, tính giờ'], ['listen', '🎧', 'Nghe & chọn', 'Nghe từ, chọn đúng chữ'], ['write', '✍️', 'Điền từ', 'Gõ từ còn thiếu trong câu'], ['order', '🧩', 'Xếp câu', 'Ghép mảnh thành câu'], ['mini', '📷', 'Part 1 mini', 'Nhìn tranh, nghe 4 câu'], ['mix', '🔀', 'Trộn tất cả', 'Đảo đủ các dạng'], ['boss', '👾', 'Đánh boss', '3 tim, hạ gục boss']],
     p2: [['flash', '📇', 'Thẻ từ', 'Nghĩa và hội thoại mẫu'], ['meaning', '🎯', 'Đoán nghĩa trong câu', 'Phần tô vàng nghĩa là gì?'], ['match', '🔗', 'Nối nhanh', 'Nối nhanh, tính giờ'], ['listen', '🎧', 'Nghe & chọn', 'Nghe, chọn đúng chữ'], ['write', '✍️', 'Điền từ', 'Gõ phần còn thiếu'], ['order', '🧩', 'Xếp câu', 'Ghép mảnh thành câu'], ['mini', '🗣️', 'Part 2 mini', 'Nghe hỏi, chọn câu đáp'], ['mix', '🔀', 'Trộn tất cả', 'Đảo đủ các dạng'], ['boss', '👾', 'Đánh boss', '3 tim, hạ gục boss']],
-    rv: [['mix', '🔀', 'Luyện ngẫu nhiên', 'Câu Part 1 + Part 2'], ['boss', '👾', 'Đánh boss', 'Đề trộn, 3 tim']]
+    rv: [['mix', '🔀', 'Luyện ngẫu nhiên', 'Câu Part 1 + Part 2'], ['boss', '👾', 'Đánh boss', 'Đề trộn, 3 tim']],
+    de: [['flash', '📇', 'Thẻ từ', 'Nghĩa, phiên âm, câu trong đề'], ['meaning', '🎯', 'Đoán nghĩa trong câu', 'Mỗi lần một câu đề khác'], ['wsent', '💡', 'Hiểu cả câu', 'Biết nghĩa từ, chọn nghĩa cả câu'], ['match', '🔗', 'Nối nhanh', 'Nối từ với nghĩa, tính giờ'], ['listen', '🎧', 'Nghe & chọn', 'Nghe từ, chọn đúng chữ'], ['write', '✍️', 'Điền từ', 'Gõ từ còn thiếu trong câu đề'], ['order', '🧩', 'Xếp câu', 'Ghép lại câu trong đề'], ['mini', '📝', 'Câu đề có từ này', 'Làm câu Part 1/Part 2 thật'], ['mix', '🔀', 'Trộn tất cả', 'Đảo đủ các dạng'], ['boss', '👾', 'Đánh boss', '3 tim, hạ gục boss']]
   };
+  const modeGrid = (list, L, deck) => `<div class="modes">${list.map(([id, ic, name, desc]) => `<a class="mode m-${id}" href="#/play/${id}/${L}${deck ? '/' + deck : ''}"><span class="mic" aria-hidden="true">${ic}</span><b>${name}</b><small>${desc}</small></a>`).join('')}</div>`;
   function lessonScreen(L) {
     const p = P.cur; const l = DB.lessonById[L]; if (!l) { location.hash = '#/'; return route(); }
     if ((UI.cfg.locks || {})[L]) { toast('Bài này giáo viên chưa mở.'); location.hash = '#/'; return route(); }
     UI.lastLesson = L;
     if (DB.cardsByL[L].length && p.focus !== L) { p.focus = L; P.save(); }
-    const m = SRS.mastery(p, L); const cards = DB.cardsByL[L];
+    const m = SRS.mastery(p, L); const cards = DB.deck(L, 'lb'); const deCards = DB.deck(L, 'de');
     const sets = DB.setsByL[L];
     const examSets = sets.filter(s => s.part === 2 || s.photo);
     const sentCount = DB.sentsByL[L].length;
@@ -154,11 +156,13 @@
     page('home', `<header class="sub-head"><a class="back" href="#/" aria-label="Quay lại">←</a><div><p class="kick">Lesson ${l.no} · ${esc(l.sub)}</p><h1>${esc(l.title)}</h1></div></header>
       <div class="mastery"><div class="lbar big"><i style="width:${m}%"></i></div><p>Đã thuộc <b>${m}%</b>${cards.length ? ` · ${cards.length} ${l.kind === 'ph' ? 'từ luyện âm' : 'mục Language Building'}` : ''}</p></div>
       ${l.tip ? `<details class="tip"><summary>Kiến thức cần nhớ</summary><p>${esc(l.tip)}</p></details>` : ''}
-      <h2 class="sec">Trò chơi</h2>
-      <div class="modes">${MODES[l.kind].map(([id, ic, name, desc]) => `<a class="mode m-${id}" href="#/play/${id}/${L}"><span class="mic" aria-hidden="true">${ic}</span><b>${name}</b><small>${desc}</small></a>`).join('')}</div>
+      <h2 class="sec">${l.kind === 'rv' ? 'Luyện tổng hợp' : l.kind === 'ph' ? 'Trò chơi' : 'Trò chơi · Language Building'}</h2>
+      ${modeGrid(MODES[l.kind], L)}
+      ${deCards.length ? `<h2 class="sec">Trò chơi · Từ vựng trong đề <span class="chip">${deCards.length} từ</span></h2><p class="muted small sec-note">Từ lấy từ câu Part ${l.kind === 'p1' ? '1' : l.kind === 'rv' ? '1 + 2' : '2'} và BTVN của bài này. Mỗi lượt chơi đổi sang câu đề khác để các em vừa nhớ từ, vừa hiểu câu.</p>${modeGrid(MODES.de, L, 'de')}` : ''}
       ${allSets.length ? `<h2 class="sec">Luyện đề trong sách</h2><div class="sets">${allSets.map(s => { const done = s.items.filter(it => SRS.box(p, DB.itemKey(s.id, it.n)) > 0).length; return `<a class="setrow" href="#/exam/${s.id}"><span class="setp p${s.part}">Part ${s.part}</span><span class="sett"><b>${esc(s.title)}</b><small>${s.items.length} câu${s.L !== L ? ' · Lesson ' + s.L.slice(1) : ''} · đã làm ${done}</small></span><span aria-hidden="true">›</span></a>`; }).join('')}</div>` : ''}
       ${sentCount ? `<h2 class="sec">Học câu</h2><a class="setrow wide" href="#/play/sent/${L}"><span class="setp s">💬</span><span class="sett"><b>Dịch câu trong đề</b><small>${sentCount} câu của Lesson ${l.no} · nghe, hiểu nghĩa, xếp câu</small></span><span aria-hidden="true">›</span></a>` : ''}
-      ${cards.length ? `<h2 class="sec">Danh sách (${cards.length})</h2><div class="wlist">${cards.map(c => wordRow(c, p)).join('')}</div>` : ''}
+      ${cards.length ? `<h2 class="sec">Danh sách ${l.kind === 'ph' ? '' : 'Language Building '}(${cards.length})</h2><div class="wlist">${cards.map(c => wordRow(c, p)).join('')}</div>` : ''}
+      ${deCards.length ? `<details class="wdetails"><summary class="sec">Danh sách từ vựng trong đề (${deCards.length})</summary><div class="wlist">${deCards.map(c => wordRow(c, p)).join('')}</div></details>` : ''}
     `);
   }
   function wordRow(c, p) {
@@ -167,15 +171,15 @@
   }
 
   /* ---------- chạy trò chơi ---------- */
-  function startPlay(mode, L) {
+  function startPlay(mode, L, deck) {
     const p = P.cur; const back = L === 'ALL' ? '#/' : '#/L/' + L;
-    if (mode === 'flash') return TVG.flash({ L, back });
-    if (mode === 'match') { if (DB.cardsByL[L].length < 3) { toast('Bài này chưa có từ để nối.'); location.hash = back; return route(); } return TVG.match({ L, back }); }
+    if (mode === 'flash') { if (!DB.deck(L, deck).length) { location.hash = back; return route(); } return TVG.flash({ L, back, deck }); }
+    if (mode === 'match') { if (DB.deck(L, deck).length < 3) { toast('Bài này chưa có từ để nối.'); location.hash = back; return route(); } return TVG.match({ L, back, deck }); }
     let qs, title;
-    if (mode === 'boss') { qs = TVG.buildBoss(p, L === 'ALL' ? null : L, UI.cfg.locks); title = 'Đánh boss'; }
-    else { qs = TVG.buildLessonSession(p, L, mode, mode === 'sent' ? 12 : 10); }
+    if (mode === 'boss') { qs = TVG.buildBoss(p, L === 'ALL' ? null : L, UI.cfg.locks, deck); title = 'Đánh boss'; }
+    else { qs = TVG.buildLessonSession(p, L, mode, mode === 'sent' ? 12 : 10, deck); }
     if (!qs.length) { toast('Chưa có câu hỏi cho phần này.'); location.hash = back; return route(); }
-    TVG.run({ qs, mode, L: L === 'ALL' ? '' : L, boss: mode === 'boss', back, title });
+    TVG.run({ qs, mode, L: L === 'ALL' ? '' : L, deck, boss: mode === 'boss', back, title });
   }
   function startMission() {
     const p = P.cur;
@@ -184,10 +188,10 @@
     TVG.run({ qs: m.qs, mode: 'mission', mission: true, back: '#/' });
   }
   function replay(o) {
-    if (o.mode === 'match') { TVG.Run.cur = null; return TVG.match({ L: o.L, back: o.back }); }
+    if (o.mode === 'match') { TVG.Run.cur = null; return TVG.match({ L: o.L, back: o.back, deck: o.deck }); }
     if (o.mode === 'test' && o.setId) return TVG.exam(DB.setById[o.setId], o.back);
     if (o.mission) return startMission();
-    startPlay(o.mode, o.L || 'ALL');
+    startPlay(o.mode, o.L || 'ALL', o.deck);
   }
 
   /* ---------- bảng xếp hạng ---------- */
@@ -364,7 +368,7 @@
     if (h === '#/' || h === '#') return home();
     if (h === '#/focus') return focusScreen();
     if ((m = /^#\/L\/(L\d+)$/.exec(h))) return lessonScreen(m[1]);
-    if ((m = /^#\/play\/(\w+)\/(L\d+|ALL)$/.exec(h))) return startPlay(m[1], m[2]);
+    if ((m = /^#\/play\/(\w+)\/(L\d+|ALL)(?:\/(de))?$/.exec(h))) return startPlay(m[1], m[2], m[3]);
     if ((m = /^#\/exam\/(.+)$/.exec(h))) { const s = DB.setById[decodeURIComponent(m[1])]; if (s) return TVG.exam(s, '#/L/' + (UI.lastLesson || s.L)); }
     if (h === '#/mission') return startMission();
     if (h === '#/board') return boardScreen();
