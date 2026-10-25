@@ -378,6 +378,9 @@ mark.hl { background: linear-gradient(104deg, transparent 0 2%, var(--hl) 2% 98%
 .end-notes { list-style: none; padding: 0; margin: 12px 0 0; font-size: .9rem; color: var(--ink2); }
 .end h2 { font-size: 1.05rem; font-weight: 800; margin: 22px 0 8px; }
 .end-wrong .wrow { margin-top: 6px; }
+.end-left { margin-top: 14px; padding: 16px; border-radius: 18px; background: var(--card); border: 2px dashed var(--blue); display: flex; flex-direction: column; gap: 12px; }
+.end-left p { margin: 0; line-height: 1.5; }
+.end-left .lbar { height: 12px; }
 .end-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
 .badge { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; background: var(--card); border: 1.5px solid var(--line); opacity: .5; filter: grayscale(1); }
 .badge.got { opacity: 1; filter: none; border-color: var(--hl); }
