@@ -306,6 +306,7 @@
     // opts: {title, qs, mode, L, boss, mission, back}
     const p = P.cur; TTS.unlock();
     const st = Run.cur = { ...opts, i: 0, pts: 0, combo: 0, maxCombo: 0, correct: 0, total: 0, wrong: [], hp: 100, hearts: 3, answered: false, t0: 0, log: [] };
+    st.n = opts.qs.filter(q => q.kind !== 'intro').length;
     if (opts.boss) st.dmg = Math.ceil(100 / Math.max(6, Math.round(opts.qs.length * 0.7)));
     document.body.classList.add('in-game');
     renderQ();
@@ -390,41 +391,60 @@
   function bossShake(kind) {
     setTimeout(() => { const f = U.$('.boss-face'); if (f) { f.classList.remove('hit', 'hurt'); void f.offsetWidth; f.classList.add(kind); } const g = U.$('.game'); if (kind === 'hurt' && g) { g.classList.remove('jolt'); void g.offsetWidth; g.classList.add('jolt'); } }, 60);
   }
+  // ghi điểm phần mới làm kể từ lần ghi trước (dùng cho kết thúc, dừng giữa chừng, làm tiếp và rời trang)
+  function bank(st, extra) {
+    const p = P.cur, b = st.bank || { pts: 0, correct: 0, total: 0, wrong: 0 };
+    const d = { pts: st.pts - b.pts + (extra || 0), correct: st.correct - b.correct, total: st.total - b.total, wrong: st.wrong.slice(b.wrong) };
+    if (st.total > 0 && b.total === 0) p.stats.sessions++;
+    if (d.total > 0) Score.touchStreak(p);
+    Score.addPoints(p, d.pts);
+    if (d.total > 0 || d.pts > 0) API.queue(p, { date: U.dayStr(), at: Date.now(), pts: d.pts, correct: d.correct, total: d.total, mode: st.mode, L: st.L || '', wrong: d.wrong.slice(0, 40) });
+    st.bank = { pts: st.pts, correct: st.correct, total: st.total, wrong: st.wrong.length };
+    st.ptsAll = (st.ptsAll || 0) + d.pts;
+  }
   function finish() {
     const st = Run.cur; const p = P.cur; TTS.stop(); if (st.finished) return; st.finished = true;
     st.levelBefore = window.TV.levelOf(p.points).idx;
     document.body.classList.remove('in-game');
-    const ctx = { maxCombo: st.maxCombo, perfect: st.total >= 10 && st.correct === st.total };
+    const n = st.n || st.total;
+    // dừng giữa chừng: chưa làm hết câu của lượt (boss: boss chưa gục và vẫn còn tim)
+    const early = st.total < n && !(st.boss && (st.hp <= 0 || st.hearts <= 0));
+    const denom = early ? n : st.total;
+    const ctx = { maxCombo: st.maxCombo, perfect: !early && denom >= 10 && st.correct === denom };
     let bonus = 0, notes = [];
-    if (st.boss) {
+    st.missionPending = false;
+    if (st.boss && !early) {
       const win = st.hp <= 0; ctx.bossWin = win;
       if (win) { bonus += 100; p.stats.boss++; notes.push('Hạ gục boss +100'); }
     }
     if (st.mission && st.total > 0) {
       const today = U.dayStr();
       if (!(p.mission && p.mission.day === today && p.mission.done)) {
-        const firstToday = p.lastDay !== U.dayNum();
-        bonus += 50; notes.push('Xong nhiệm vụ hôm nay +50');
-        const sb = Math.min(p.streak + (firstToday ? 1 : 0), 10) * 5; if (sb) { bonus += sb; notes.push('Thưởng chuỗi ngày +' + sb); }
-        p.mission = { day: today, done: true }; ctx.mission = true;
+        if (early) st.missionPending = true;
+        else {
+          const firstToday = p.lastDay !== U.dayNum();
+          bonus += 50; notes.push('Xong nhiệm vụ hôm nay +50');
+          const sb = Math.min(p.streak + (firstToday ? 1 : 0), 10) * 5; if (sb) { bonus += sb; notes.push('Thưởng chuỗi ngày +' + sb); }
+          p.mission = { day: today, done: true }; ctx.mission = true;
+        }
       }
     }
-    const total = st.pts + bonus;
-    if (st.total > 0) { p.stats.sessions++; Score.touchStreak(p); }
-    Score.addPoints(p, total);
+    bank(st, bonus);
     const badges = Score.checkBadges(p, ctx);
-    const lv = window.TV.levelOf(p.points); if (lv.idx > st.levelBefore) { st.levelUp = lv; notes.unshift(`Lên cấp: ${lv.icon} ${lv.name}!`); }
+    const lv = window.TV.levelOf(p.points); if (lv.idx > st.levelBefore) { st.levelUp = lv; notes.unshift(`Lên cấp: ${lv.icon} ${lv.name}!`); } else st.levelUp = null;
     P.saveNow();
-    if (st.total > 0) API.queue(p, { date: U.dayStr(), at: Date.now(), pts: total, correct: st.correct, total: st.total, mode: st.mode, L: st.L || '', wrong: st.wrong.slice(0, 40) });
-    renderEnd({ st, total, notes, badges });
+    renderEnd({ st, total: st.ptsAll, notes, badges, early, n: denom });
   }
-  function renderEnd({ st, total, notes, badges }) {
-    const acc = st.total ? Math.round(st.correct / st.total * 100) : 0;
+  function renderEnd({ st, total, notes, badges, early = false, n = st.total }) {
+    const acc = n ? Math.round(st.correct / n * 100) : 0;
     const wrongIds = [...new Set(st.wrong)];
-    const win = st.boss ? st.hp <= 0 : acc >= 60;
-    const title = st.boss ? (win ? 'Boss đã gục ngã!' : 'Boss vẫn còn đứng…') : acc === 100 ? 'Hoàn hảo!' : acc >= 80 ? 'Làm tốt lắm!' : acc >= 50 ? 'Cố thêm chút nữa!' : 'Ôn lại rồi thử tiếp nhé';
-    // âm thanh chúc mừng
-    if (st.boss && win) { SFX.bossDown(); setTimeout(SFX.win, 700); setTimeout(() => window.TVUI && window.TVUI.confetti(), 700); SFX.cheer('win'); }
+    const left = Math.max(0, n - st.total);
+    const win = !early && (st.boss ? st.hp <= 0 : acc >= 60);
+    const title = early ? 'Lượt chơi còn dang dở' : st.boss ? (win ? 'Boss đã gục ngã!' : 'Boss vẫn còn đứng…') : acc === 100 ? 'Hoàn hảo!' : acc >= 80 ? 'Làm tốt lắm!' : acc >= 50 ? 'Cố thêm chút nữa!' : 'Ôn lại rồi thử tiếp nhé';
+    const emo = early ? '⏳' : st.boss ? (win ? '🏆' : '👾') : acc >= 80 ? '🌟' : acc >= 50 ? '💪' : '📖';
+    // âm thanh: dừng giữa chừng thì chỉ động viên, không chúc mừng
+    if (early) SFX.cheer('try');
+    else if (st.boss && win) { SFX.bossDown(); setTimeout(SFX.win, 700); setTimeout(() => window.TVUI && window.TVUI.confetti(), 700); SFX.cheer('win'); }
     else if (st.boss) { SFX.lose(); SFX.cheer('try'); }
     else if (st.total === 0) {}
     else if (acc >= 80) { SFX.win(); window.TVUI && window.TVUI.confetti(); SFX.cheer('win'); }
@@ -432,23 +452,32 @@
     else { SFX.lose(); SFX.cheer('try'); }
     if (st.levelUp) setTimeout(SFX.levelUp, 2600);
     if (badges.length) setTimeout(SFX.badge, st.levelUp ? 3300 : 2600);
+    const pct = n ? Math.round(st.total / n * 100) : 0;
+    const resume = early ? `<div class="end-left"><p><b>Bạn đã làm ${st.total}/${n} câu, còn ${left} câu nữa.</b> Làm nốt để nhận thêm điểm${st.missionPending ? ' và thưởng nhiệm vụ hôm nay (+50)' : ''} nhé!</p><div class="lbar" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${st.total}" aria-label="Tiến độ lượt chơi"><i style="width:${pct}%"></i></div><button class="btn primary wide" data-act="resume">Làm tiếp ${left} câu</button></div>` : '';
     U.$('#app').innerHTML = `<section class="end">
-      <div class="end-top ${win ? 'win' : ''}"><p class="end-emo" aria-hidden="true">${st.boss ? (win ? '🏆' : '👾') : acc >= 80 ? '🌟' : acc >= 50 ? '💪' : '📖'}</p><h1>${title}</h1>
+      <div class="end-top ${win ? 'win' : ''}"><p class="end-emo" aria-hidden="true">${emo}</p><h1>${title}</h1>
       <p class="end-pts"><b>+${U.fmt(total)}</b> điểm</p>
-      <div class="end-stats"><div><b>${st.correct}/${st.total}</b><span>câu đúng</span></div><div><b>${acc}%</b><span>chính xác</span></div><div><b>${st.maxCombo}</b><span>combo cao nhất</span></div></div>
+      <div class="end-stats"><div><b>${st.correct}/${n}</b><span>câu đúng</span></div><div><b>${acc}%</b><span>${early ? 'của cả lượt' : 'chính xác'}</span></div><div><b>${st.maxCombo}</b><span>combo cao nhất</span></div></div>
       ${notes.length ? `<ul class="end-notes">${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}</div>
+      ${resume}
       ${badges.length ? `<div class="end-badges"><h2>Huy hiệu mới</h2>${badges.map(b => `<div class="badge got"><span>${b.icon}</span><div><b>${esc(b.name)}</b><p>${esc(b.desc)}</p></div></div>`).join('')}</div>` : ''}
       ${wrongIds.length ? `<div class="end-wrong"><h2>Cần ôn lại (${wrongIds.length})</h2><p class="muted">Những mục này sẽ quay lại trong nhiệm vụ ngày mai.</p>${wrongIds.map(id => { const d = DB.describe(id); return `<div class="wrow">${spk(d.en)}<div><b>${esc(d.en)}</b><p>${esc(d.vi)}</p></div></div>`; }).join('')}</div>` : ''}
-      <div class="end-actions"><button class="btn primary wide" data-act="again">Chơi lượt nữa</button><button class="btn ghost wide" data-act="back">${st.back === '#/' ? 'Về trang chủ' : 'Về bài học'}</button></div></section>`;
+      <div class="end-actions">${early ? '<button class="btn ghost wide" data-act="again">Chơi lượt mới</button>' : '<button class="btn primary wide" data-act="again">Chơi lượt nữa</button>'}<button class="btn ghost wide" data-act="back">${st.back === '#/' ? 'Về trang chủ' : 'Về bài học'}</button></div></section>`;
     window.TVUI && window.TVUI.refreshBadge && window.TVUI.refreshBadge();
+  }
+  // làm tiếp lượt đang dở từ màn kết quả
+  function resume() {
+    const st = Run.cur; if (!st || !st.finished || !st.qs || !st.qs.length) return;
+    st.finished = false; if (st.answered) st.i++;
+    document.body.classList.add('in-game'); window.scrollTo(0, 0);
+    renderQ();
   }
 
   // rời trò chơi giữa chừng (bấm nút Quay lại của trình duyệt): vẫn ghi điểm các câu đã làm
   function abandon() {
     const st = Run.cur; if (!st || st.finished || !st.qs || !st.total) return;
     st.finished = true; const p = P.cur; if (!p) return;
-    p.stats.sessions++; Score.touchStreak(p); Score.addPoints(p, st.pts); Score.checkBadges(p, { maxCombo: st.maxCombo }); P.saveNow();
-    API.queue(p, { date: U.dayStr(), at: Date.now(), pts: st.pts, correct: st.correct, total: st.total, mode: st.mode, L: st.L || '', wrong: st.wrong.slice(0, 40) });
+    bank(st); Score.checkBadges(p, { maxCombo: st.maxCombo }); P.saveNow();
   }
 
   /* ---------- sự kiện trong game ---------- */
@@ -468,7 +497,7 @@
       if (st.total === 0) { TTS.stop(); document.body.classList.remove('in-game'); Run.cur = null; location.hash = st.back || '#/'; window.TVUI.route(); return; }
       if (U.$('.qsheet')) return;
       const d = document.createElement('div'); d.className = 'qsheet'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true');
-      d.innerHTML = `<div class="qs-in"><p class="h3">Dừng lượt chơi?</p><p class="muted">Điểm của ${st.total} câu đã làm vẫn được cộng.</p><div class="trow"><button class="btn ghost" data-act="quit-no" type="button">Chơi tiếp</button><button class="btn bad" data-act="quit-yes" type="button">Dừng và xem điểm</button></div></div>`;
+      d.innerHTML = `<div class="qs-in"><p class="h3">Dừng lượt chơi?</p><p class="muted">Bạn đã làm ${st.total}/${st.n} câu. Điểm các câu đã làm vẫn được cộng, và bạn có thể làm tiếp phần còn lại.</p><div class="trow"><button class="btn ghost" data-act="quit-no" type="button">Chơi tiếp</button><button class="btn bad" data-act="quit-yes" type="button">Dừng và xem điểm</button></div></div>`;
       U.$('.game').appendChild(d); U.$('[data-act="quit-no"]', d).focus();
     }
     else if (a === 'quit-no') { const d = U.$('.qsheet'); d && d.remove(); }
@@ -476,6 +505,7 @@
     else if (a === 'hint') { const q = st.qs[st.i]; st.hinted = true; const inp = U.$('#typein'); if (q.hint && inp && !inp.value) inp.value = q.hint; inp && inp.focus(); t.disabled = true; t.textContent = 'Đã gợi ý'; }
     else if (a === 'undo') { if (st.orderPicked.length) { st.orderPicked.pop(); drawOrder(); } }
     else if (a === 'ordercheck') { if (!st.answered) check(st.orderPicked.map(k => st.orderPool[k].w).join(' ')); }
+    else if (a === 'resume') { resume(); }
     else if (a === 'again') { const o = Run.cur; Run.cur = null; window.TVUI.replay(o); }
     else if (a === 'back') { Run.cur = null; location.hash = st.back || '#/'; window.TVUI.route(); }
   });
